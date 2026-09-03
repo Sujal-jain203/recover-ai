@@ -213,8 +213,8 @@
             const ptpLabel = row.ptp_date
               ? `${row.ptp_status} · ${row.ptp_date}`
               : row.ptp_status;
-            const wa = row.whatsapp_url
-              ? `<a href="${escapeHtml(row.whatsapp_url)}" target="_blank" rel="noopener noreferrer" class="rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/25">Send WhatsApp</a>`
+            const wa = row.action?.whatsapp_url
+              ? `<a href="${escapeHtml(row.action.whatsapp_url)}" target="_blank" class="inline-block mt-1 px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-500 mr-2">Send WhatsApp</a>`
               : "";
             return `<tr class="${tint}">
               <td class="px-5 py-3 font-mono text-xs text-slate-300">${escapeHtml(row.txn_id)}</td>
@@ -225,7 +225,7 @@
               <td class="px-5 py-3 font-mono">${inr.format(row.amount_inr)}</td>
               <td class="px-5 py-3 font-mono text-xs text-slate-400">${escapeHtml(row.failure_reason)}</td>
               <td class="px-5 py-3">
-                <div class="font-mono text-xs">${escapeHtml(row.action)}</div>
+                <div class="font-mono text-xs">${escapeHtml(row.action?.name || row.action)}</div>
                 <div class="${ptpTone} mt-1 text-[10px] font-medium">${escapeHtml(ptpLabel)}</div>
                 <div class="mt-2 flex flex-wrap gap-1.5">
                   ${wa}

@@ -12,11 +12,16 @@ class FailureReason(str, Enum):
     EXPIRED = "EXPIRED"
 
 
-class RecoveryAction(str, Enum):
+class RecoveryActionType(str, Enum):
     SCHEDULE_SILENT_RETRY = "SCHEDULE_SILENT_RETRY"
     HINGLISH_NUDGE = "HINGLISH_NUDGE"
     UPI_FALLBACK_LINK = "UPI_FALLBACK_LINK"
     STOP_ESCALATE = "STOP_ESCALATE"
+
+
+class RecoveryAction(BaseModel):
+    name: RecoveryActionType
+    whatsapp_url: str | None = None
 
 
 class RecoveryStatus(str, Enum):
@@ -63,7 +68,6 @@ class AuditRecord(BaseModel):
     decision: str
     channel_payload: str
     payment_link: str | None
-    whatsapp_url: str | None = None
     ptp_status: PtpStatus = PtpStatus.NOT_SET
     ptp_date: date | None = None
     timestamp: datetime

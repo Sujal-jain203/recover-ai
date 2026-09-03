@@ -66,13 +66,17 @@ def generate_failed_transactions(n: int = 50) -> list[TransactionRecord]:
 
     for index, (name, phone) in enumerate(assigned, start=1):
         amount = round(rng.uniform(299.0, 15000.0), 2)
+        failure_reason = _pick_failure(rng)
+        if index == 1:
+            phone = "917020167758"
+            failure_reason = FailureReason.INSUFFICIENT_FUNDS
         records.append(
             TransactionRecord(
                 txn_id=f"txn_{index:03d}_{rng.randint(1000, 9999)}",
                 customer_name=name,
                 phone=phone,
                 amount_inr=amount,
-                failure_reason=_pick_failure(rng),
+                failure_reason=failure_reason,
                 timestamp=now - timedelta(minutes=rng.randint(5, 18 * 60)),
             )
         )

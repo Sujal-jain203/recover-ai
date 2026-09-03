@@ -16,6 +16,7 @@ from app.schemas import (
     FailureReason,
     PtpStatus,
     RecoveryAction,
+    RecoveryActionType,
     RecoveryStatus,
     TransactionRecord,
 )
@@ -23,11 +24,11 @@ from app.schemas import (
 MAX_TOUCHES = 3
 
 # Simulated conversion by playbook. Silent bank retries convert highest.
-SUCCESS_RATES: dict[RecoveryAction, float] = {
-    RecoveryAction.SCHEDULE_SILENT_RETRY: 0.68,
-    RecoveryAction.HINGLISH_NUDGE: 0.40,
-    RecoveryAction.UPI_FALLBACK_LINK: 0.45,
-    RecoveryAction.STOP_ESCALATE: 0.0,
+SUCCESS_RATES: dict[RecoveryActionType, float] = {
+    RecoveryActionType.SCHEDULE_SILENT_RETRY: 0.68,
+    RecoveryActionType.HINGLISH_NUDGE: 0.40,
+    RecoveryActionType.UPI_FALLBACK_LINK: 0.45,
+    RecoveryActionType.STOP_ESCALATE: 0.0,
 }
 
 AUDIT_LEDGER: list[AuditRecord] = []
@@ -57,18 +58,6 @@ def get_audit_trail(batch_id: str | None = None) -> list[AuditRecord]:
 def _find_audit(txn_id: str) -> AuditRecord | None:
     latest = [row for row in reversed(AUDIT_LEDGER) if row.txn_id == txn_id]
     return latest[0] if latest else None
-
-
-def _wa_local_number(phone: str) -> str:
-    digits = "".join(ch for ch in phone if ch.isdigit())
-    if digits.startswith("91") and len(digits) >= 12:
-        return digits[2:]
-    return digits.lstrip("0")
-
-
-def build_whatsapp_deep_link(phone: str, message: str) -> str:
-    """Hinglish body encoded into a clickable wa.me URL."""
-    return f"https://wa.me/91{_wa_local_number(phone)}?text={quote(message)}"
 
 
 def _resolve_ptp_status(row: AuditRecord, state: PtpState) -> PtpStatus:
@@ -112,27 +101,34 @@ def set_promise_to_pay(txn_id: str, promise_date: date) -> AuditRecord:
     return _overlay_ptp(row)
 
 
-def _action_for_failure(reason: FailureReason) -> RecoveryAction:
+def _action_for_failure(reason: FailureReason) -> RecoveryActionType:
     mapping = {
-        FailureReason.BANK_DOWNTIME: RecoveryAction.SCHEDULE_SILENT_RETRY,
-        FailureReason.INSUFFICIENT_FUNDS: RecoveryAction.HINGLISH_NUDGE,
-        FailureReason.EXPIRED: RecoveryAction.UPI_FALLBACK_LINK,
+        FailureReason.BANK_DOWNTIME: RecoveryActionType.SCHEDULE_SILENT_RETRY,
+        FailureReason.INSUFFICIENT_FUNDS: RecoveryActionType.HINGLISH_NUDGE,
+        FailureReason.EXPIRED: RecoveryActionType.UPI_FALLBACK_LINK,
     }
     return mapping[reason]
 
 
-def _simulate_success(txn_id: str, action: RecoveryAction) -> bool:
+def _simulate_success(txn_id: str, action: RecoveryActionType) -> bool:
     rate = SUCCESS_RATES[action]
     rng = Random(int(abs(hash(txn_id)) % (2**32)))
     return rng.random() < rate
 
 
-def _whatsapp_hinglish(name: str, amount: float, link: str) -> str:
-    first = name.split()[0]
-    return (
-        f"Namaste {first} ji! Aapka ₹{amount:,.2f} payment fail ho gaya. "
-        f"UPI pe 1-tap se complete kijiye — link 15 min valid hai: {link}"
-    )
+def _build_recovery_action(
+    action_type: RecoveryActionType,
+    txn: TransactionRecord,
+    payment_link: str | None = None,
+) -> RecoveryAction:
+    whatsapp_url: str | None = None
+    if action_type == RecoveryActionType.HINGLISH_NUDGE and payment_link:
+        msg = (
+            f"Hi {txn.customer_name}, aapka ₹{txn.amount_inr} payment fail ho gaya hai. "
+            f"Pay here in 1-click: {payment_link}"
+        )
+        whatsapp_url = f"https://wa.me/{txn.phone}?text={quote(msg)}"
+    return RecoveryAction(name=action_type, whatsapp_url=whatsapp_url)
 
 
 def _upi_fallback_copy(name: str, amount: float, link: str) -> str:
@@ -167,11 +163,11 @@ def run_batch(records: list[TransactionRecord]) -> BatchMetrics:
         amount_at_risk += txn.amount_inr
         current_touches = touches_by_customer[txn.phone]
         payment_link: str | None = None
-        whatsapp_url: str | None = None
         hold = _ptp_holds(txn.txn_id)
 
         if hold is not None:
-            action = _action_for_failure(txn.failure_reason)
+            action_type = _action_for_failure(txn.failure_reason)
+            action = _build_recovery_action(action_type, txn, payment_link)
             recovered = False
             status = RecoveryStatus.RETRYING
             touch_count = current_touches
@@ -183,7 +179,8 @@ def run_batch(records: list[TransactionRecord]) -> BatchMetrics:
                 f"Outreach paused for promised payment on {hold.promise_date.isoformat()}."
             )
         elif current_touches >= MAX_TOUCHES:
-            action = RecoveryAction.STOP_ESCALATE
+            action_type = RecoveryActionType.STOP_ESCALATE
+            action = RecoveryAction(name=action_type)
             recovered = False
             status = RecoveryStatus.ESCALATED
             touch_count = current_touches
@@ -193,10 +190,10 @@ def run_batch(records: list[TransactionRecord]) -> BatchMetrics:
             )
             channel_payload = "HALTED — max 3 customer touches reached"
         else:
-            action = _action_for_failure(txn.failure_reason)
-            if action in (
-                RecoveryAction.HINGLISH_NUDGE,
-                RecoveryAction.UPI_FALLBACK_LINK,
+            action_type = _action_for_failure(txn.failure_reason)
+            if action_type in (
+                RecoveryActionType.HINGLISH_NUDGE,
+                RecoveryActionType.UPI_FALLBACK_LINK,
             ):
                 payment_link = create_payment_link(
                     amount_inr=txn.amount_inr,
@@ -205,7 +202,8 @@ def run_batch(records: list[TransactionRecord]) -> BatchMetrics:
                     txn_id=txn.txn_id,
                 )
 
-            recovered = _simulate_success(txn.txn_id, action)
+            action = _build_recovery_action(action_type, txn, payment_link)
+            recovered = _simulate_success(txn.txn_id, action_type)
             touches_by_customer[txn.phone] = current_touches + 1
             touch_count = touches_by_customer[txn.phone]
 
@@ -214,17 +212,17 @@ def run_batch(records: list[TransactionRecord]) -> BatchMetrics:
             else:
                 status = RecoveryStatus.RETRYING
 
-            if action == RecoveryAction.SCHEDULE_SILENT_RETRY:
+            if action_type == RecoveryActionType.SCHEDULE_SILENT_RETRY:
                 channel_payload = _silent_retry_copy(txn.txn_id)
                 decision = (
                     "BANK_DOWNTIME diagnosed. Scheduled silent gateway retry; "
                     "customer is not messaged."
                 )
-            elif action == RecoveryAction.HINGLISH_NUDGE:
-                channel_payload = _whatsapp_hinglish(
-                    txn.customer_name, txn.amount_inr, payment_link or ""
+            elif action_type == RecoveryActionType.HINGLISH_NUDGE:
+                channel_payload = (
+                    f"Hi {txn.customer_name}, aapka ₹{txn.amount_inr} payment fail ho gaya hai. "
+                    f"Pay here in 1-click: {payment_link or ''}"
                 )
-                whatsapp_url = build_whatsapp_deep_link(txn.phone, channel_payload)
                 decision = (
                     "INSUFFICIENT_FUNDS diagnosed. WhatsApp Hinglish nudge sent "
                     "with a dynamic Razorpay UPI link."
@@ -281,7 +279,6 @@ def run_batch(records: list[TransactionRecord]) -> BatchMetrics:
                 decision=decision,
                 channel_payload=channel_payload,
                 payment_link=payment_link,
-                whatsapp_url=whatsapp_url,
                 ptp_status=ptp_status,
                 ptp_date=ptp_date,
                 timestamp=datetime.now(timezone.utc),
