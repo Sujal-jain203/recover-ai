@@ -279,6 +279,7 @@ def run_batch(records: list[TransactionRecord]) -> BatchMetrics:
                 decision=decision,
                 channel_payload=channel_payload,
                 payment_link=payment_link,
+                whatsapp_url=action.whatsapp_url,
                 ptp_status=ptp_status,
                 ptp_date=ptp_date,
                 timestamp=datetime.now(timezone.utc),

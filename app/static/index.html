@@ -29,6 +29,31 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <style>
+      .wa-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+        margin-right: 8px;
+        padding: 6px 10px;
+        background: #25d366;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 700;
+        border-radius: 6px;
+        text-decoration: none;
+        box-shadow: 0 0 12px rgba(37, 211, 102, 0.35);
+      }
+      .wa-btn:hover {
+        background: #1ebe57;
+      }
+      .wa-btn svg {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+      }
+    </style>
   </head>
   <body class="h-full bg-ink text-slate-100 antialiased">
     <div id="toasts" class="fixed right-4 top-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"></div>
@@ -94,13 +119,14 @@
                 <th class="px-5 py-3">Amount</th>
                 <th class="px-5 py-3">Failure</th>
                 <th class="px-5 py-3">Action</th>
+                <th class="px-5 py-3">WhatsApp</th>
                 <th class="px-5 py-3">Touches</th>
                 <th class="px-5 py-3">Status</th>
               </tr>
             </thead>
             <tbody id="ledger-body" class="divide-y divide-line">
               <tr>
-                <td colspan="7" class="px-5 py-10 text-center text-slate-500">
+                <td colspan="8" class="px-5 py-10 text-center text-slate-500">
                   Run a 50-record recovery batch to populate the ledger.
                 </td>
               </tr>
@@ -197,12 +223,35 @@
           .replaceAll('"', "&quot;");
       }
 
+      const WA_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2 22l4.832-1.438A9.955 9.955 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2zm0 18.182a8.18 8.18 0 01-4.177-1.145l-.3-.178-2.868.857.857-2.868-.178-.3A8.18 8.18 0 014.818 12c0-4.526 3.656-8.182 8.182-8.182S21.182 7.474 21.182 12 16.526 20.182 12 20.182z"/></svg>`;
+
+      function actionName(row) {
+        if (row?.action && typeof row.action === "object") return row.action.name || "";
+        return row.action || "";
+      }
+
+      function getWhatsAppUrl(row) {
+        if (row?.action?.whatsapp_url) return row.action.whatsapp_url;
+        if (row?.whatsapp_url) return row.whatsapp_url;
+        const name = actionName(row);
+        if (name === "HINGLISH_NUDGE" && row.phone && row.payment_link) {
+          const msg = `Hi ${row.customer_name}, aapka ₹${row.amount_inr} payment fail ho gaya hai. Pay here in 1-click: ${row.payment_link}`;
+          return `https://wa.me/${row.phone}?text=${encodeURIComponent(msg)}`;
+        }
+        return null;
+      }
+
+      function whatsappButton(url) {
+        if (!url) return '<span class="text-[11px] text-slate-600">—</span>';
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="wa-btn">${WA_ICON} WhatsApp</a>`;
+      }
+
       function renderRows(rows) {
         ledger = rows;
         const body = document.getElementById("ledger-body");
         if (!rows.length) {
           body.innerHTML =
-            '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">Ledger empty.</td></tr>';
+            '<tr><td colspan="8" class="px-5 py-10 text-center text-slate-500">Ledger empty.</td></tr>';
           return;
         }
         body.innerHTML = rows
@@ -213,9 +262,7 @@
             const ptpLabel = row.ptp_date
               ? `${row.ptp_status} · ${row.ptp_date}`
               : row.ptp_status;
-            const wa = row.action?.whatsapp_url
-              ? `<a href="${escapeHtml(row.action.whatsapp_url)}" target="_blank" class="inline-block mt-1 px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-500 mr-2">Send WhatsApp</a>`
-              : "";
+            const waUrl = getWhatsAppUrl(row);
             return `<tr class="${tint}">
               <td class="px-5 py-3 font-mono text-xs text-slate-300">${escapeHtml(row.txn_id)}</td>
               <td class="px-5 py-3">
@@ -225,13 +272,13 @@
               <td class="px-5 py-3 font-mono">${inr.format(row.amount_inr)}</td>
               <td class="px-5 py-3 font-mono text-xs text-slate-400">${escapeHtml(row.failure_reason)}</td>
               <td class="px-5 py-3">
-                <div class="font-mono text-xs">${escapeHtml(row.action?.name || row.action)}</div>
+                <div class="font-mono text-xs">${escapeHtml(actionName(row))}</div>
                 <div class="${ptpTone} mt-1 text-[10px] font-medium">${escapeHtml(ptpLabel)}</div>
-                <div class="mt-2 flex flex-wrap gap-1.5">
-                  ${wa}
+                <div class="mt-2">
                   <button data-ptp="${escapeHtml(row.txn_id)}" class="rounded-md bg-slate-700/70 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-600">Set PTP</button>
                 </div>
               </td>
+              <td class="px-5 py-3">${whatsappButton(waUrl)}</td>
               <td class="px-5 py-3 font-mono">${row.touch_count}/3</td>
               <td class="px-5 py-3">
                 <span class="rounded-full px-2.5 py-1 text-[11px] font-semibold ${chip}">${row.status}</span>

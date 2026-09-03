@@ -68,6 +68,7 @@ class AuditRecord(BaseModel):
     decision: str
     channel_payload: str
     payment_link: str | None
+    whatsapp_url: str | None = None
     ptp_status: PtpStatus = PtpStatus.NOT_SET
     ptp_date: date | None = None
     timestamp: datetime
