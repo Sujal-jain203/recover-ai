@@ -1,0 +1,16 @@
+[project]
+name = "recover-ai"
+version = "1.0.0"
+description = "Autonomous revenue recovery engine for Razorpay AI Buildathon Track 03"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "razorpay",
+    "pydantic>=2.0.0",
+    "python-dotenv",
+    "httpx",
+]
+
+[tool.vercel]
+entrypoint = "api.index:app"

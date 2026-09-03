@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RecoverAI — Autonomous Revenue Recovery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              ink: "#07090d",
+              panel: "#10151c",
+              line: "#1e2936",
+              razor: "#3395ff",
+            },
+            fontFamily: {
+              sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+              mono: ["IBM Plex Mono", "ui-monospace", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="h-full bg-ink text-slate-100 antialiased">
+    <div id="toasts" class="fixed right-4 top-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"></div>
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(51,149,255,0.12),_transparent_55%)]"></div>
+    <div class="relative mx-auto max-w-7xl px-6 py-8">
+      <header class="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p class="mb-2 font-mono text-xs uppercase tracking-[0.28em] text-razor">Track 03 · Razorpay AI Buildathon</p>
+          <h1 class="text-3xl font-semibold tracking-tight">RecoverAI</h1>
+          <p class="mt-1 max-w-xl text-sm text-slate-400">
+            Detect failed checkouts, diagnose root cause, recover revenue. Hard stop at 3 customer touches.
+          </p>
+        </div>
+        <button
+          id="run-btn"
+          class="inline-flex items-center gap-2 rounded-lg bg-razor px-5 py-2.5 text-sm font-semibold text-white shadow-[0_0_24px_rgba(51,149,255,0.35)] transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span id="run-label">Run Batch Recovery</span>
+        </button>
+      </header>
+
+      <section class="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <article class="rounded-2xl border border-line bg-panel p-5">
+          <p class="text-xs uppercase tracking-widest text-slate-500">At Risk</p>
+          <p id="metric-risk" class="mt-3 font-mono text-3xl font-medium text-slate-100">₹0</p>
+          <p class="mt-1 text-xs text-slate-500">Failed GMV in this batch</p>
+        </article>
+        <article class="rounded-2xl border border-emerald-900/50 bg-panel p-5">
+          <p class="text-xs uppercase tracking-widest text-emerald-400">Recovered</p>
+          <p id="metric-recovered" class="mt-3 font-mono text-3xl font-medium text-emerald-400">₹0</p>
+          <p class="mt-1 text-xs text-slate-500">Measured money pulled back</p>
+        </article>
+        <article class="rounded-2xl border border-line bg-panel p-5">
+          <p class="text-xs uppercase tracking-widest text-slate-500">Rate %</p>
+          <p id="metric-rate" class="mt-3 font-mono text-3xl font-medium text-razor">0%</p>
+          <p class="mt-1 text-xs text-slate-500">Recovered / at-risk</p>
+        </article>
+        <article class="rounded-2xl border border-slate-700 bg-panel p-5">
+          <p class="text-xs uppercase tracking-widest text-slate-400">Escalated</p>
+          <p id="metric-escalated" class="mt-3 font-mono text-3xl font-medium text-slate-300">0</p>
+          <p class="mt-1 text-xs text-slate-500">3-touch cap reached</p>
+        </article>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-line bg-panel">
+        <div class="flex items-center justify-between border-b border-line px-5 py-4">
+          <div>
+            <h2 class="text-sm font-semibold">Immutable audit ledger</h2>
+            <p id="batch-meta" class="font-mono text-xs text-slate-500">No batch run yet</p>
+          </div>
+          <div class="flex gap-2 text-[11px] font-medium">
+            <span class="rounded-full bg-emerald-500/15 px-2.5 py-1 text-emerald-400">Recovered</span>
+            <span class="rounded-full bg-amber-500/15 px-2.5 py-1 text-amber-400">Retrying</span>
+            <span class="rounded-full bg-slate-500/20 px-2.5 py-1 text-slate-300">Escalated</span>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead class="bg-black/30 font-mono text-[11px] uppercase tracking-wider text-slate-500">
+              <tr>
+                <th class="px-5 py-3">Txn</th>
+                <th class="px-5 py-3">Customer</th>
+                <th class="px-5 py-3">Amount</th>
+                <th class="px-5 py-3">Failure</th>
+                <th class="px-5 py-3">Action</th>
+                <th class="px-5 py-3">Touches</th>
+                <th class="px-5 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody id="ledger-body" class="divide-y divide-line">
+              <tr>
+                <td colspan="7" class="px-5 py-10 text-center text-slate-500">
+                  Run a 50-record recovery batch to populate the ledger.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div id="ptp-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/60 px-4">
+      <div class="w-full max-w-sm rounded-2xl border border-line bg-panel p-5 shadow-2xl">
+        <h3 class="text-sm font-semibold">Set promise to pay</h3>
+        <p id="ptp-txn" class="mt-1 font-mono text-xs text-slate-500"></p>
+        <label class="mt-4 block text-xs uppercase tracking-wider text-slate-500">Promise date</label>
+        <input
+          id="ptp-date"
+          type="date"
+          class="mt-2 w-full rounded-lg border border-line bg-ink px-3 py-2 text-sm text-slate-100 outline-none focus:border-razor"
+        />
+        <p class="mt-2 text-xs text-slate-500">Retries stay suppressed until this date.</p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button id="ptp-cancel" class="rounded-lg px-3 py-2 text-sm text-slate-400 hover:text-slate-100">Cancel</button>
+          <button id="ptp-save" class="rounded-lg bg-razor px-3 py-2 text-sm font-semibold text-white">Save PTP</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const inr = new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: "INR",
+        maximumFractionDigits: 0,
+      });
+
+      const statusClass = {
+        RECOVERED: "bg-emerald-500/15 text-emerald-400",
+        RETRYING: "bg-amber-500/15 text-amber-400",
+        ESCALATED: "bg-slate-500/25 text-slate-300",
+      };
+
+      const rowTint = {
+        RECOVERED: "bg-emerald-950/20",
+        RETRYING: "bg-amber-950/20",
+        ESCALATED: "bg-slate-900/60",
+      };
+
+      const ptpClass = {
+        NOT_SET: "text-slate-500",
+        PROMISED_PAYMENT: "text-sky-300",
+        HONORED: "text-emerald-400",
+        BROKEN: "text-rose-400",
+      };
+
+      let ledger = [];
+      let ptpTxnId = null;
+
+      function tomorrowIso() {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        return d.toISOString().slice(0, 10);
+      }
+
+      function showToast(message, tone) {
+        const root = document.getElementById("toasts");
+        const tones = {
+          success: "border-emerald-500/40 bg-emerald-950/90 text-emerald-200",
+          warn: "border-amber-500/40 bg-amber-950/90 text-amber-100",
+          info: "border-razor/40 bg-slate-950/90 text-slate-100",
+        };
+        const el = document.createElement("div");
+        el.className = `rounded-xl border px-4 py-3 text-sm shadow-lg backdrop-blur ${tones[tone] || tones.info}`;
+        el.textContent = message;
+        root.appendChild(el);
+        setTimeout(() => {
+          el.classList.add("opacity-0", "transition");
+          setTimeout(() => el.remove(), 400);
+        }, 4200);
+      }
+
+      function setMetrics(m) {
+        document.getElementById("metric-risk").textContent = inr.format(m.amount_at_risk);
+        document.getElementById("metric-recovered").textContent = inr.format(m.amount_recovered);
+        document.getElementById("metric-rate").textContent = `${m.recovery_rate_pct.toFixed(2)}%`;
+        document.getElementById("metric-escalated").textContent = String(m.escalated_count);
+        document.getElementById("batch-meta").textContent =
+          `${m.batch_id} · ${m.total_records} txns · ${m.recovered_count} recovered · ${m.retrying_count} retrying`;
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function renderRows(rows) {
+        ledger = rows;
+        const body = document.getElementById("ledger-body");
+        if (!rows.length) {
+          body.innerHTML =
+            '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">Ledger empty.</td></tr>';
+          return;
+        }
+        body.innerHTML = rows
+          .map((row) => {
+            const tint = rowTint[row.status] || "";
+            const chip = statusClass[row.status] || "bg-slate-700 text-slate-200";
+            const ptpTone = ptpClass[row.ptp_status] || "text-slate-500";
+            const ptpLabel = row.ptp_date
+              ? `${row.ptp_status} · ${row.ptp_date}`
+              : row.ptp_status;
+            const wa = row.whatsapp_url
+              ? `<a href="${escapeHtml(row.whatsapp_url)}" target="_blank" rel="noopener noreferrer" class="rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/25">Send WhatsApp</a>`
+              : "";
+            return `<tr class="${tint}">
+              <td class="px-5 py-3 font-mono text-xs text-slate-300">${escapeHtml(row.txn_id)}</td>
+              <td class="px-5 py-3">
+                <div class="font-medium">${escapeHtml(row.customer_name)}</div>
+                <div class="font-mono text-[11px] text-slate-500">${escapeHtml(row.phone)}</div>
+              </td>
+              <td class="px-5 py-3 font-mono">${inr.format(row.amount_inr)}</td>
+              <td class="px-5 py-3 font-mono text-xs text-slate-400">${escapeHtml(row.failure_reason)}</td>
+              <td class="px-5 py-3">
+                <div class="font-mono text-xs">${escapeHtml(row.action)}</div>
+                <div class="${ptpTone} mt-1 text-[10px] font-medium">${escapeHtml(ptpLabel)}</div>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  ${wa}
+                  <button data-ptp="${escapeHtml(row.txn_id)}" class="rounded-md bg-slate-700/70 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-600">Set PTP</button>
+                </div>
+              </td>
+              <td class="px-5 py-3 font-mono">${row.touch_count}/3</td>
+              <td class="px-5 py-3">
+                <span class="rounded-full px-2.5 py-1 text-[11px] font-semibold ${chip}">${row.status}</span>
+              </td>
+            </tr>`;
+          })
+          .join("");
+      }
+
+      function announceBatch(rows) {
+        const recovered = rows.filter((r) => r.status === "RECOVERED").length;
+        const stopped = rows.filter((r) => r.status === "ESCALATED" || r.touch_count >= 3).length;
+        if (recovered) {
+          showToast(`${recovered} transaction${recovered === 1 ? "" : "s"} recovered`, "success");
+        }
+        if (stopped) {
+          showToast(`${stopped} stopped at the 3-touch cap`, "warn");
+        }
+      }
+
+      function openPtpModal(txnId) {
+        ptpTxnId = txnId;
+        document.getElementById("ptp-txn").textContent = txnId;
+        document.getElementById("ptp-date").value = tomorrowIso();
+        document.getElementById("ptp-modal").classList.remove("hidden");
+        document.getElementById("ptp-modal").classList.add("flex");
+      }
+
+      function closePtpModal() {
+        ptpTxnId = null;
+        document.getElementById("ptp-modal").classList.add("hidden");
+        document.getElementById("ptp-modal").classList.remove("flex");
+      }
+
+      async function savePtp() {
+        if (!ptpTxnId) return;
+        const promise_date = document.getElementById("ptp-date").value;
+        if (!promise_date) return;
+        const res = await fetch(`/api/transactions/${encodeURIComponent(ptpTxnId)}/ptp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ promise_date }),
+        });
+        if (!res.ok) {
+          showToast("Could not set PTP for that transaction", "warn");
+          return;
+        }
+        const updated = await res.json();
+        ledger = ledger.map((row) => (row.txn_id === updated.txn_id ? updated : row));
+        renderRows(ledger);
+        showToast(`PTP set — retries paused until ${updated.ptp_date}`, "info");
+        closePtpModal();
+      }
+
+      async function runBatch() {
+        const btn = document.getElementById("run-btn");
+        const label = document.getElementById("run-label");
+        btn.disabled = true;
+        label.textContent = "Recovering…";
+        try {
+          const metricsRes = await fetch("/api/run-batch", { method: "POST" });
+          if (!metricsRes.ok) throw new Error("Batch failed");
+          const metrics = await metricsRes.json();
+          setMetrics(metrics);
+          const trailRes = await fetch("/api/audit-trail");
+          const trail = await trailRes.json();
+          renderRows(trail);
+          announceBatch(trail);
+        } catch (err) {
+          document.getElementById("batch-meta").textContent = err.message || "Request failed";
+        } finally {
+          btn.disabled = false;
+          label.textContent = "Run Batch Recovery";
+        }
+      }
+
+      document.getElementById("run-btn").addEventListener("click", runBatch);
+      document.getElementById("ptp-cancel").addEventListener("click", closePtpModal);
+      document.getElementById("ptp-save").addEventListener("click", savePtp);
+      document.getElementById("ptp-modal").addEventListener("click", (event) => {
+        if (event.target.id === "ptp-modal") closePtpModal();
+      });
+      document.getElementById("ledger-body").addEventListener("click", (event) => {
+        const btn = event.target.closest("[data-ptp]");
+        if (btn) openPtpModal(btn.getAttribute("data-ptp"));
+      });
+    </script>
+  </body>
+</html>
