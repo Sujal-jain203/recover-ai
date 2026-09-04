@@ -1,7 +1,9 @@
 [project]
 name = "recover-ai"
 version = "1.0.0"
-description = "Autonomous revenue recovery engine for Razorpay AI Buildathon Track 03"
+description = "Autonomous revenue recovery engine for Razorpay merchants"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi",
