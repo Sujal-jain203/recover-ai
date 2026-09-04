@@ -1,10 +1,10 @@
 # RecoverAI
 
-**Autonomous Revenue Recovery Engine** — built for **Razorpay AI Buildathon · Track 03**.
+**Autonomous Revenue Recovery Engine** for Razorpay merchants.
 
 RecoverAI is an agentic state machine that detects failed transactions, diagnoses root causes, and executes a bounded recovery workflow across a synthetic batch of 50 records. It measures money recovered, enforces a strict 3-touch cap per customer, and maintains an immutable audit ledger.
 
-**Live repo:** [github.com/Sujal-jain203/recover-ai](https://github.com/Sujal-jain203/recover-ai)
+**Repository:** [github.com/Sujal-jain203/recover-ai](https://github.com/Sujal-jain203/recover-ai)
 
 ---
 
@@ -17,10 +17,13 @@ RecoverAI is an agentic state machine that detects failed transactions, diagnose
 | **3-touch stopping rule** | Hard cap of 3 customer touches; further attempts become `STOP_ESCALATE` |
 | **Measured recovery** | Tracks amount at risk, amount recovered, recovery rate %, and escalated count |
 | **Immutable audit ledger** | Frozen records for every touch, decision, channel payload, and timestamp |
-| **Razorpay payment links** | Real `payment_link.create` calls (paise conversion); mock fallback on auth failure |
-| **WhatsApp deep-links** | Pre-filled `wa.me` URLs for `INSUFFICIENT_FUNDS` nudges |
-| **Promise-to-Pay (PTP)** | Set a promise date and suppress retries until that date |
-| **Dark-mode dashboard** | Tailwind CSS single-page UI with live metrics and ledger table |
+| **Razorpay payment links** | Live `payment_link.create` calls (INR → paise); deterministic mock fallback on auth failure |
+| **WhatsApp deep-links** | URL-encoded `wa.me` links with Hinglish message + Razorpay pay link for `INSUFFICIENT_FUNDS` |
+| **One-click WhatsApp UI** | Dedicated dashboard column with green WhatsApp icon button opening pre-filled chat |
+| **Promise-to-Pay (PTP)** | Set a promise date via API or dashboard; retries suppressed until that date |
+| **PTP lifecycle** | Tracks `NOT_SET` → `PROMISED_PAYMENT` → `HONORED` / `BROKEN` per transaction |
+| **Demo-ready batch** | First transaction is primed as `INSUFFICIENT_FUNDS` with a live demo phone for instant WhatsApp testing |
+| **Dark-mode dashboard** | Single-page UI with metric cards, ledger table, PTP modal, and recovery toasts |
 
 ---
 
@@ -28,7 +31,7 @@ RecoverAI is an agentic state machine that detects failed transactions, diagnose
 
 - **Backend:** Python 3.12+, FastAPI, Pydantic v2
 - **Payments:** Razorpay Python SDK
-- **Frontend:** HTML + Tailwind CSS (CDN)
+- **Frontend:** HTML + Tailwind CSS (CDN) with inline-styled WhatsApp actions
 - **Deploy:** Vercel serverless (`@vercel/python`)
 
 ---
@@ -41,13 +44,13 @@ recover-ai/
 │   └── index.py              # Vercel serverless entrypoint
 ├── app/
 │   ├── main.py               # FastAPI routes + static mount
-│   ├── schemas.py            # Pydantic models & enums
-│   ├── data_generator.py     # 50-record synthetic batch
-│   ├── recovery_engine.py    # State machine + audit ledger
+│   ├── schemas.py            # Pydantic models (RecoveryAction, AuditRecord, PTP)
+│   ├── data_generator.py     # 50-record synthetic batch (demo row primed)
+│   ├── recovery_engine.py    # State machine + audit ledger + WhatsApp URLs
 │   ├── razorpay_service.py   # Payment link creation
 │   ├── config.py             # .env loader (python-dotenv)
 │   └── static/
-│       └── index.html        # Dashboard UI
+│       └── index.html        # Dashboard UI (metrics, ledger, PTP, WhatsApp)
 ├── requirements.txt
 ├── pyproject.toml
 ├── vercel.json
@@ -90,7 +93,19 @@ RZP_KEY_SECRET=your_key_secret
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000) and click **Run Batch Recovery**.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000), click **Run Batch Recovery**, then use the green **WhatsApp** button on row 1.
+
+---
+
+## Dashboard
+
+The dashboard exposes four live metric cards and a full audit ledger:
+
+- **At Risk / Recovered / Rate % / Escalated** — batch-level recovery KPIs
+- **Ledger table** — txn, customer, amount, failure reason, action, WhatsApp, touches, status
+- **WhatsApp column** — green button with icon for `INSUFFICIENT_FUNDS` rows; opens `wa.me` with pre-filled Hinglish message
+- **Set PTP** — modal to record a promise date and pause retries
+- **Toasts** — alerts when transactions recover or hit the 3-touch cap
 
 ---
 
@@ -122,6 +137,33 @@ curl -X POST http://127.0.0.1:8000/api/run-batch
 }
 ```
 
+### Example: audit record with WhatsApp action
+
+```json
+{
+  "txn_id": "txn_001_4598",
+  "phone": "917020167758",
+  "failure_reason": "INSUFFICIENT_FUNDS",
+  "action": {
+    "name": "HINGLISH_NUDGE",
+    "whatsapp_url": "https://wa.me/917020167758?text=Hi%20..."
+  },
+  "whatsapp_url": "https://wa.me/917020167758?text=Hi%20...",
+  "payment_link": "https://rzp.io/i/recoverai-txn_001_4598",
+  "ptp_status": "NOT_SET",
+  "status": "RETRYING",
+  "touch_count": 1
+}
+```
+
+### Example: set promise-to-pay
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/transactions/txn_001_4598/ptp \
+  -H "Content-Type: application/json" \
+  -d '{"promise_date": "2026-09-10"}'
+```
+
 ---
 
 ## Recovery State Machine
@@ -139,12 +181,24 @@ Failed Transaction
   Diagnose failure reason
        │
        ├── BANK_DOWNTIME      → SCHEDULE_SILENT_RETRY  (68% sim. success)
-       ├── INSUFFICIENT_FUNDS → HINGLISH_NUDGE + wa.me link  (40%)
+       ├── INSUFFICIENT_FUNDS → HINGLISH_NUDGE + Razorpay link + wa.me URL  (40%)
        └── EXPIRED            → UPI_FALLBACK_LINK  (45%)
        │
        ▼
   Append frozen AuditRecord to ledger
 ```
+
+---
+
+## WhatsApp Recovery Flow
+
+For `INSUFFICIENT_FUNDS` failures, RecoverAI:
+
+1. Creates a Razorpay payment link (amount in paise).
+2. Builds a Hinglish message with customer name, amount, and pay link.
+3. URL-encodes the message into a `https://wa.me/{phone}?text=...` deep link.
+4. Stores the link on `RecoveryAction.whatsapp_url` and `AuditRecord.whatsapp_url`.
+5. Renders a one-click **WhatsApp** button in the dashboard.
 
 ---
 
@@ -154,10 +208,9 @@ Failed Transaction
 2. Set environment variables in the Vercel project settings:
    - `RZP_KEY_ID`
    - `RZP_KEY_SECRET`
-3. Deploy — `vercel.json` routes all traffic to `api/index.py`.
+3. Deploy — `vercel.json` routes all traffic to `api/index.py` via `@vercel/python`.
 
 ```bash
-# Or deploy via CLI
 npm i -g vercel
 vercel
 ```
@@ -177,4 +230,4 @@ vercel
 
 ## License
 
-MIT — built for the Razorpay AI Buildathon.
+MIT
