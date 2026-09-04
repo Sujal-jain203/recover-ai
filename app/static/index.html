@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RecoverAI — Autonomous Revenue Recovery</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -52,6 +53,24 @@
         width: 14px;
         height: 14px;
         flex-shrink: 0;
+      }
+      .pay-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+        padding: 6px 10px;
+        background: #4f46e5;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 700;
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+        box-shadow: 0 0 12px rgba(79, 70, 229, 0.35);
+      }
+      .pay-btn:hover {
+        background: #6366f1;
       }
     </style>
   </head>
@@ -243,7 +262,17 @@
 
       function whatsappButton(url) {
         if (!url) return '<span class="text-[11px] text-slate-600">—</span>';
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="wa-btn">${WA_ICON} WhatsApp</a>`;
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="wa-btn">${WA_ICON} Send WhatsApp</a>`;
+      }
+
+      function canPayNow(row) {
+        const reason = String(row.failure_reason || "");
+        return reason === "INSUFFICIENT_FUNDS" || reason === "MANDATE_EXPIRED" || reason === "EXPIRED";
+      }
+
+      function payNowButton(row) {
+        if (!canPayNow(row)) return "";
+        return `<button type="button" data-pay="${escapeHtml(row.txn_id)}" class="pay-btn">Pay Now</button>`;
       }
 
       function renderRows(rows) {
@@ -278,7 +307,12 @@
                   <button data-ptp="${escapeHtml(row.txn_id)}" class="rounded-md bg-slate-700/70 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-600">Set PTP</button>
                 </div>
               </td>
-              <td class="px-5 py-3">${whatsappButton(waUrl)}</td>
+              <td class="px-5 py-3">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  ${whatsappButton(waUrl)}
+                  ${payNowButton(row)}
+                </div>
+              </td>
               <td class="px-5 py-3 font-mono">${row.touch_count}/3</td>
               <td class="px-5 py-3">
                 <span class="rounded-full px-2.5 py-1 text-[11px] font-semibold ${chip}">${row.status}</span>
@@ -355,6 +389,52 @@
         }
       }
 
+      async function triggerCheckout(txn_id) {
+        const row = ledger.find((item) => item.txn_id === txn_id) || {};
+        try {
+          const res = await fetch(`/api/create-checkout/${encodeURIComponent(txn_id)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              amount_inr: row.amount_inr,
+              customer_name: row.customer_name,
+              phone: row.phone,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const detail = Array.isArray(data.detail)
+              ? (data.detail[0]?.msg || data.detail[0]?.detail || JSON.stringify(data.detail))
+              : (data.detail || `Checkout failed (${res.status})`);
+            throw new Error(detail);
+          }
+          if (typeof Razorpay === "undefined") {
+            showToast("Razorpay checkout script did not load", "warn");
+            return;
+          }
+          var options = {
+            "key": data.key_id,
+            "amount": data.amount_inr * 100,
+            "currency": "INR",
+            "name": "RecoverAI Recovery",
+            "description": "Subscription Retry",
+            "order_id": data.order_id,
+            "prefill": {
+              "name": data.customer_name || "",
+              "contact": data.phone || "",
+            },
+            "handler": function (response){
+                alert("Test Payment Successful! ID: " + response.razorpay_payment_id);
+            },
+            "theme": { "color": "#4f46e5" }
+          };
+          var rzp = new Razorpay(options);
+          rzp.open();
+        } catch (err) {
+          showToast(err.message || "Could not open checkout", "warn");
+        }
+      }
+
       document.getElementById("run-btn").addEventListener("click", runBatch);
       document.getElementById("ptp-cancel").addEventListener("click", closePtpModal);
       document.getElementById("ptp-save").addEventListener("click", savePtp);
@@ -362,6 +442,11 @@
         if (event.target.id === "ptp-modal") closePtpModal();
       });
       document.getElementById("ledger-body").addEventListener("click", (event) => {
+        const pay = event.target.closest("[data-pay]");
+        if (pay) {
+          triggerCheckout(pay.getAttribute("data-pay"));
+          return;
+        }
         const btn = event.target.closest("[data-ptp]");
         if (btn) openPtpModal(btn.getAttribute("data-ptp"));
       });

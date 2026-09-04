@@ -52,3 +52,25 @@ def create_payment_link(
 
 def _mock_link(txn_id: str) -> str:
     return f"https://rzp.io/i/recoverai-{txn_id}"
+
+
+class RazorpayService:
+    """Order + payment-link wrapper used by checkout and recovery flows."""
+
+    def __init__(self) -> None:
+        self.client = get_client()
+
+    def create_checkout_order(self, amount_inr: int, receipt_id: str) -> str:
+        try:
+            order = self.client.order.create({
+                "amount": int(amount_inr) * 100,
+                "currency": "INR",
+                "receipt": receipt_id[:40],
+            })
+            return str(order["id"])
+        except Exception:
+            return "mock_order_id"
+
+
+def create_checkout_order(amount_inr: int, receipt_id: str) -> str:
+    return RazorpayService().create_checkout_order(amount_inr, receipt_id)

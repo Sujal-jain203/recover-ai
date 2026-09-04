@@ -78,6 +78,21 @@ class PtpRequest(BaseModel):
     promise_date: date
 
 
+class CheckoutRequest(BaseModel):
+    amount_inr: float | None = None
+    customer_name: str | None = None
+    phone: str | None = None
+
+
+class CheckoutOrderResponse(BaseModel):
+    order_id: str
+    amount_inr: int
+    key_id: str
+    txn_id: str
+    customer_name: str
+    phone: str
+
+
 class BatchMetrics(BaseModel):
     total_records: int
     amount_at_risk: float

@@ -60,6 +60,13 @@ def _find_audit(txn_id: str) -> AuditRecord | None:
     return latest[0] if latest else None
 
 
+def get_transaction(txn_id: str) -> AuditRecord:
+    row = _find_audit(txn_id)
+    if row is None:
+        raise KeyError(txn_id)
+    return _overlay_ptp(row)
+
+
 def _resolve_ptp_status(row: AuditRecord, state: PtpState) -> PtpStatus:
     if row.recovered or row.status == RecoveryStatus.RECOVERED:
         return PtpStatus.HONORED
